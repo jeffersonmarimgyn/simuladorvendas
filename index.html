@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Simulador Funil & Pipeline - Jefferson Marim</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              totvs: {
+                brand: "#00A3BE",
+                brand2: "#0095B0",
+                brand3: "#00BBD3",
+                dark: "#003F4B",
+              }
+            },
+            borderRadius: { "2xl": "1rem" }
+          }
+        }
+      }
+    </script>
+  </head>
+  <body class="bg-blue-50">
+    <div id="root"></div>
+
+    <!-- React 18 UMD + Babel for JSX in-browser -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+      const { useMemo, useState } = React;
+
+      // Utils
+      const PALETTE = ["#00A3BE","#0095B0","#00BBD3","#007A8E","#00697A","#005463","#003F4B","#002F38"];
+      const currency = (v) => (Number.isFinite(v) ? v : 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+      const numberBR = (v) => (Number.isFinite(v) ? v : 0).toLocaleString("pt-BR");
+      const pct = (v) => `${Number.isFinite(v) ? (v * 100).toFixed(1) : "0.0"}%`;
+
+      // Small components
+      function Kpi({ title, value, sub, emph=false }){
+        return (
+          <div className={`rounded-2xl border shadow-sm p-4 ${emph ? "bg-rose-50 border-rose-200" : "bg-white"}`}>
+            <div className="text-xs font-medium text-slate-500">{title}</div>
+            <div className={`text-2xl font-bold ${emph ? "text-rose-600" : "text-slate-900"}`}>{value}</div>
+            {sub ? <div className="text-xs text-slate-600 mt-1">{sub}</div> : null}
+          </div>
+        );
+      }
+
+      function BarChart({ data, width=640, height=360, title="", formatter=currency }){
+        const pad = { l: 44, r: 12, t: 12, b: 34 };
+        const max = Math.max(1, ...data.map(d => +d.value || 0));
+        const bw = (width - pad.l - pad.r) / Math.max(1, data.length);
+        return (
+          <div>
+            <div className="text-sm text-slate-600 mb-2">{title}</div>
+            {data.length === 0 ? (
+              <div className="text-sm text-slate-500">Sem dados.</div>
+            ) : (
+              <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="bg-white rounded-xl border">
+                <rect x="0" y="0" width={width} height={height} fill="#fff" />
+                {data.map((d,i) => {
+                  const v = +d.value || 0;
+                  const h = ((height - pad.t - pad.b) * v) / max;
+                  const x = pad.l + i*bw + 6;
+                  const y = height - pad.b - h;
+                  const inside = h >= 22;
+                  const ty = inside ? y + 14 : y - 4;
+                  const tcolor = inside ? "#fff" : "#0f172a";
+                  return (
+                    <g key={i}>
+                      <rect x={x} y={y} width={bw-12} height={h} fill={PALETTE[i%PALETTE.length]} />
+                      <text x={x+(bw-12)/2} y={ty} textAnchor="middle" fontSize="10" fill={tcolor}>{formatter(v)}</text>
+                      <text x={x+(bw-12)/2} y={height-10} textAnchor="middle" fontSize="10" fill="#334155">{String(d.label).slice(0,18)}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            )}
+          </div>
+        );
+      }
+
+      function GroupedBar({ cats, series, width=720, height=360, title="", formatter=numberBR }){
+        const pad = { l: 44, r: 12, t: 12, b: 34 };
+        const cols = [PALETTE[0], PALETTE[3]];
+        const vals = cats.flatMap((_,i)=> series.map(s => +s.values[i] || 0));
+        const max = Math.max(1, ...vals);
+        const gw = (width - pad.l - pad.r) / Math.max(1, cats.length);
+        const bw = (gw - 12) / Math.max(1, series.length);
+        return (
+          <div>
+            <div className="text-sm text-slate-600 mb-2">{title}</div>
+            <div className="flex flex-col md:flex-row gap-6 md:items-start">
+              <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="bg-white rounded-xl border">
+                <rect x="0" y="0" width={width} height={height} fill="#fff" />
+                {cats.map((c, gi) => (
+                  <g key={gi}>
+                    {series.map((s, si) => {
+                      const v = +s.values[gi] || 0;
+                      const h = ((height - pad.t - pad.b) * v) / max;
+                      const x = pad.l + gi*gw + 6 + si*bw;
+                      const y = height - pad.b - h;
+                      const fill = cols[si % cols.length];
+                      const inside = h >= 22;
+                      const ty = inside ? y + 14 : y - 4;
+                      const tcolor = inside ? "#fff" : "#0f172a";
+                      return (
+                        <g key={si}>
+                          <rect x={x} y={y} width={bw-6} height={h} fill={fill} />
+                          <text x={x+(bw-6)/2} y={ty} textAnchor="middle" fontSize="10" fill={tcolor}>{formatter(v)}</text>
+                        </g>
+                      );
+                    })}
+                    <text x={pad.l + gi*gw + gw/2} y={height-10} textAnchor="middle" fontSize="10" fill="#334155">{String(c).slice(0,18)}</text>
+                  </g>
+                ))}
+              </svg>
+              <div className="flex-1 space-y-2">
+                {series.map((s,i)=>(
+                  <div key={i} className="flex items-center gap-3 text-sm">
+                    <span className="inline-block w-3 h-3 rounded-sm" style={{ background: cols[i%cols.length] }}></span>
+                    <span className="flex-1 truncate">{s.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function LineChart({ meta, proj, len, elapsed, width=720, height=360, title="" }){
+        const pad = { l: 44, r: 12, t: 12, b: 34 };
+        const max = Math.max(1, ...meta, ...proj);
+        const sx = (i) => pad.l + (i/Math.max(1, len-1))*(width - pad.l - pad.r);
+        const sy = (v) => height - pad.b - (v/max)*(height - pad.t - pad.b);
+        const path = (arr) => arr.map((v,i)=>`${i===0?"M":"L"} ${sx(i)} ${sy(v)}`).join(" ");
+        const cols = ["#003F4B", PALETTE[0]];
+        return (
+          <div>
+            <div className="text-sm text-slate-600 mb-2">{title}</div>
+            <div className="flex flex-col md:flex-row gap-6 md:items-start">
+              <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="bg-white rounded-xl border">
+                <rect x="0" y="0" width={width} height={height} fill="#fff" />
+                <path d={path(meta)} fill="none" stroke={cols[0]} strokeWidth="3" />
+                <path d={path(proj)} fill="none" stroke={cols[1]} strokeWidth="2" />
+                <line x1={sx(Math.max(0, Math.min(len-1, elapsed-1)))} x2={sx(Math.max(0, Math.min(len-1, elapsed-1)))} y1={pad.t} y2={height-pad.b} stroke="#94a3b8" strokeDasharray="4 4" />
+              </svg>
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-3 text-sm"><span className="inline-block w-3 h-3 rounded-sm" style={{background: cols[0]}}></span>Meta acumulada</div>
+                <div className="flex items-center gap-3 text-sm"><span className="inline-block w-3 h-3 rounded-sm" style={{background: cols[1]}}></span>Projeção acumulada</div>
+                <div className="text-xs text-slate-600">Dia atual: {elapsed} / {len}</div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function periodInfo(period){
+        const now = new Date();
+        const ms = 86400000;
+        if(period === "Mensal"){
+          const len = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+          const elapsed = Math.min(len, now.getDate());
+          return { len, elapsed };
+        }
+        if(period === "Trimestral"){
+          const m = Math.floor(now.getMonth()/3)*3;
+          const s = new Date(now.getFullYear(), m, 1);
+          const e = new Date(now.getFullYear(), m+3, 0);
+          const len = Math.floor((e-s)/ms) + 1;
+          const elapsed = Math.min(len, Math.floor((now-s)/ms) + 1);
+          return { len, elapsed };
+        }
+        if(period === "Semestral"){
+          const m = Math.floor(now.getMonth()/6)*6;
+          const s = new Date(now.getFullYear(), m, 1);
+          const e = new Date(now.getFullYear(), m+6, 0);
+          const len = Math.floor((e-s)/ms) + 1;
+          const elapsed = Math.min(len, Math.floor((now-s)/ms) + 1);
+          return { len, elapsed };
+        }
+        const s = new Date(now.getFullYear(), 0, 1);
+        const e = new Date(now.getFullYear(), 12, 0);
+        const len = Math.floor((e-s)/ms) + 1;
+        const elapsed = Math.min(len, Math.floor((now-s)/ms) + 1);
+        return { len, elapsed };
+      }
+
+      function App(){
+        // Base
+        const [tab, setTab] = useState("sim");
+        const [period, setPeriod] = useState("Mensal");
+        const [metaTotal, setMetaTotal] = useState(0);
+        const [ticket, setTicket] = useState(0);
+        const [txL2O, setTxL2O] = useState(0);
+        const [txO2V, setTxO2V] = useState(0);
+        const [origens, setOrigens] = useState([{ nome: "Inbound", qtd: 0 }, { nome: "Outbound", qtd: 0 }]);
+        const [leadsConv, setLeadsConv] = useState(0);
+        const [vendas, setVendas] = useState(0);
+        const [receita, setReceita] = useState(0);
+        const [pipeQtde, setPipeQtde] = useState(0);
+        const [pipeValor, setPipeValor] = useState(0);
+
+        const totalLeads = useMemo(()=> origens.reduce((s,o)=> s + (+o.qtd || 0), 0), [origens]);
+        const txRealL2O = useMemo(()=> (totalLeads>0 ? Math.min(1, (+leadsConv||0)/totalLeads) : 0), [leadsConv,totalLeads]);
+
+        const dealsNovos = useMemo(()=> totalLeads * txL2O * txO2V, [totalLeads, txL2O, txO2V]);
+        const receitaNovos = useMemo(()=> dealsNovos * ticket, [dealsNovos, ticket]);
+
+        const pipeReceita = useMemo(()=> +pipeValor || 0, [pipeValor]);
+        const pipeDeals = useMemo(()=> Math.round(+pipeQtde || 0), [pipeQtde]);
+
+        const receitaPrevista = useMemo(()=> receitaNovos + pipeReceita, [receitaNovos, pipeReceita]);
+        const clientesPrevistos = useMemo(()=> Math.round(dealsNovos + pipeDeals), [dealsNovos, pipeDeals]);
+
+        const metaRestante = useMemo(()=> Math.max(0, (+metaTotal||0) - (+receita||0) - (+pipeReceita||0)), [metaTotal, receita, pipeReceita]);
+        const dealsAlvo = useMemo(()=> (ticket>0 ? metaRestante/ticket : 0), [metaRestante, ticket]);
+        const leadsNec = useMemo(()=> { const den = Math.max(1e-9, (+txL2O||0) * (+txO2V||0)); return Math.ceil((dealsAlvo||0)/den); }, [dealsAlvo, txL2O, txO2V]);
+        const oppsNec = useMemo(()=> Math.ceil(leadsNec * (+txL2O||0)), [leadsNec, txL2O]);
+        const cobertura = useMemo(()=> (metaTotal>0 ? Math.min(1, (+receita + receitaPrevista)/metaTotal) : 0), [metaTotal, receita, receitaPrevista]);
+
+        // Simulação
+        const [simActive, setSimActive] = useState(false);
+        const [simOrigens, setSimOrigens] = useState([{ nome: "Inbound", qtd: 0 }, { nome: "Outbound", qtd: 0 }]);
+        const [simTxL2O, setSimTxL2O] = useState(0);
+        const [simTxO2V, setSimTxO2V] = useState(0);
+        const [simTicket, setSimTicket] = useState(0);
+        const [simPipelineAdd, setSimPipelineAdd] = useState(0);
+
+        const simTotalLeads = useMemo(()=> simOrigens.reduce((s,o)=> s + (+o.qtd||0), 0), [simOrigens]);
+        const simDeals = useMemo(()=> simTotalLeads * simTxL2O * simTxO2V, [simTotalLeads, simTxL2O, simTxO2V]);
+        const simReceitaNovos = useMemo(()=> simDeals * simTicket, [simDeals, simTicket]);
+        const simReceitaPrevista = useMemo(()=> simReceitaNovos + pipeReceita + simPipelineAdd, [simReceitaNovos, pipeReceita, simPipelineAdd]);
+        const simClientes = useMemo(()=> Math.round(simDeals + pipeDeals), [simDeals, pipeDeals]);
+        const simMetaRest = useMemo(()=> Math.max(0, (+metaTotal||0) - (+receita||0) - (+pipeReceita||0) - (+simPipelineAdd||0)), [metaTotal, receita, pipeReceita, simPipelineAdd]);
+        const simDealsAlvo = useMemo(()=> (simTicket>0 ? simMetaRest/simTicket : 0), [simMetaRest, simTicket]);
+        const simLeadsNec = useMemo(()=> { const den = Math.max(1e-9, (+simTxL2O||0) * (+simTxO2V||0)); return Math.ceil((simDealsAlvo||0)/den); }, [simDealsAlvo, simTxL2O, simTxO2V]);
+        const simLeadsFalt = useMemo(()=> Math.max(0, simLeadsNec - simTotalLeads), [simLeadsNec, simTotalLeads]);
+        const simCob = useMemo(()=> (metaTotal>0 ? Math.min(1, (receita + pipeReceita + simPipelineAdd + simReceitaNovos)/metaTotal) : 0), [metaTotal, receita, pipeReceita, simPipelineAdd, simReceitaNovos]);
+
+        const copyReaisToSim = () => {
+          setSimOrigens(origens.map(o => ({ ...o })));
+          setSimTxL2O(txL2O);
+          setSimTxO2V(txO2V);
+          setSimTicket(ticket);
+        };
+
+        return (
+          <div className="min-h-screen w-full text-slate-900">
+            <header className="sticky top-0 z-10 backdrop-blur bg-blue-50/80 border-b">
+              <div className="max-w-6xl mx-auto px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <h1 className="text-xl font-bold tracking-tight">Simulador Funil & Pipeline - Jefferson Marim</h1>
+                  <div className="flex items-center gap-2 text-sm">
+                    <select value={period} onChange={(e)=>setPeriod(e.target.value)} className="border rounded-lg px-2 py-1 bg-white">
+                      <option>Mensal</option>
+                      <option>Trimestral</option>
+                      <option>Semestral</option>
+                      <option>Anual</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="mt-3 inline-flex rounded-xl border bg-white p-1">
+                  <button onClick={()=>setTab("sim")} className={`px-4 py-1.5 text-sm rounded-lg ${tab==="sim"?"bg-[#00A3BE] text-white":"text-slate-700"}`}>Simulador</button>
+                  <button onClick={()=>setTab("dash")} className={`px-4 py-1.5 text-sm rounded-lg ${tab==="dash"?"bg-[#00A3BE] text-white":"text-slate-700"}`}>Dashboards</button>
+                </div>
+              </div>
+            </header>
+
+            {tab === "sim" ? (
+              <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+                <section className="bg-white rounded-2xl shadow-sm border p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="flex flex-col"><label className="text-xs font-medium">Meta Total ({period})</label><input type="number" min="0" value={metaTotal||""} onChange={(e)=>setMetaTotal(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-medium">Ticket médio (R$)</label><input type="number" min="0" value={ticket||""} onChange={(e)=>setTicket(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-medium">Taxa Lead → Oportunidade (%)</label><input type="number" min="0" max="100" value={Number((txL2O*100).toFixed(1))||""} onChange={(e)=>setTxL2O(Math.max(0, Math.min(1,(+e.target.value||0)/100)))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-medium">Taxa Oportunidade → Venda (%)</label><input type="number" min="0" max="100" value={Number((txO2V*100).toFixed(1))||""} onChange={(e)=>setTxO2V(Math.max(0, Math.min(1,(+e.target.value||0)/100)))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-slate-50 rounded-xl p-3 border">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-semibold">Leads por origem</div>
+                        <button onClick={()=>setOrigens(p=>[...p,{nome:"Nova origem", qtd:0}])} className="text-xs px-3 h-10 border rounded-lg bg-white hover:bg-slate-50 whitespace-nowrap">+ Adicionar origem</button>
+                      </div>
+                      <div className="space-y-2">
+                        {origens.map((o,i)=>(
+                          <div key={i} className="flex items-center gap-2 flex-wrap">
+                            <input value={o.nome} onChange={(e)=>setOrigens(p=>p.map((x,ix)=> ix===i? {...x, nome:e.target.value}:x))} className="border rounded-lg h-10 px-3 bg-white w-40" />
+                            <input type="number" min="0" value={o.qtd||""} onChange={(e)=>setOrigens(p=>p.map((x,ix)=> ix===i? {...x, qtd:Math.max(0,+e.target.value||0)}:x))} className="border rounded-lg h-10 px-3 bg-white w-28" />
+                            <button onClick={()=>setOrigens(p=>p.filter((_,ix)=>ix!==i))} className="text-xs px-3 h-10 border rounded-lg hover:bg-slate-100 shrink-0 whitespace-nowrap">Remover</button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-xs text-slate-600 mt-2">Total de Leads: <b>{numberBR(totalLeads)}</b></div>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-3 border">
+                      <div className="text-sm font-semibold mb-2">Leads que viraram Oportunidade</div>
+                      <div className="grid grid-cols-3 gap-2 items-end">
+                        <div className="flex flex-col"><label className="text-xs">Quantidade</label><input type="number" min="0" value={leadsConv||""} onChange={(e)=>setLeadsConv(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                        <div className="flex flex-col"><label className="text-xs">Taxa real</label><input readOnly value={pct(txRealL2O)} className="border rounded-lg h-10 px-3 bg-slate-100" /></div>
+                        <div className="flex"><button onClick={()=>setTxL2O(txRealL2O)} className="px-3 h-10 rounded-xl bg-[#00A3BE] text-white hover:opacity-90 whitespace-nowrap">Aplicar</button></div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-3 border">
+                      <div className="text-sm font-semibold mb-2">Realizado no Período</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col"><label className="text-xs">Vendas realizadas (qtde)</label><input type="number" min="0" value={vendas||""} onChange={(e)=>setVendas(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                        <div className="flex flex-col"><label className="text-xs">Receita realizada (R$)</label><input type="number" min="0" value={receita||""} onChange={(e)=>setReceita(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-3 border">
+                      <div className="text-sm font-semibold mb-2">Contas em andamento (Forecast)</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col"><label className="text-xs">Contas (qtde)</label><input type="number" min="0" value={pipeQtde||""} onChange={(e)=>setPipeQtde(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                        <div className="flex flex-col"><label className="text-xs">Valor total (R$)</label><input type="number" min="0" value={pipeValor||""} onChange={(e)=>setPipeValor(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                      </div>
+                      <div className="text-xs text-slate-600 mt-2">Receita esperada do pipeline: <b className="ml-1">{currency(pipeReceita)}</b></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <Kpi title={`Receita Prevista (${period})`} value={currency(receitaPrevista)} sub={`Clientes esperados: ${clientesPrevistos}`} />
+                  <Kpi title={`Meta Total (${period})`} value={currency(metaTotal)} />
+                  <Kpi title={"GAP para Meta"} value={currency(Math.max(0, metaTotal - (receita + receitaPrevista)))} sub={pct(metaTotal>0 ? Math.max(0, metaTotal - (receita + receitaPrevista)) / metaTotal : 0)} emph={metaTotal - (receita + receitaPrevista) > 0} />
+                  <Kpi title={"Conversão média dos leads"} value={pct(txL2O * txO2V)} sub="Lead→Opp × Opp→Venda" />
+                </section>
+
+                <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Kpi title={`Receita Realizada (${period})`} value={currency(receita)} sub={`Vendas realizadas: ${numberBR(vendas)}`} />
+                  <Kpi title={`Meta Restante (${period})`} value={currency(metaRestante)} sub={`Em clientes: ${Math.ceil(dealsAlvo)||0}`} />
+                  <Kpi title={"Cobertura da meta"} value={pct(cobertura)} sub={"Realizado + Previsto"} />
+                </section>
+
+                <section className="bg-white rounded-2xl shadow-sm border p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-semibold">Simulação (What-if)</div>
+                    <label className="text-xs inline-flex items-center gap-2 select-none">
+                      <input type="checkbox" checked={simActive} onChange={(e)=>setSimActive(e.target.checked)} /> Ativar simulação
+                    </label>
+                  </div>
+
+                  {simActive && (
+                    <div className="space-y-4">
+                      <div className="flex gap-2">
+                        <button onClick={copyReaisToSim} className="text-xs px-3 h-10 border rounded-lg bg-white hover:bg-slate-50">Copiar reais → simulação</button>
+                        <button onClick={()=>{ setSimOrigens([{nome:"Inbound",qtd:0},{nome:"Outbound",qtd:0}]); setSimTxL2O(0); setSimTxO2V(0); setSimTicket(0); setSimPipelineAdd(0); }} className="text-xs px-3 h-10 border rounded-lg bg-white hover:bg-slate-50">Resetar simulação</button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-slate-50 rounded-xl p-3 border">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-sm font-semibold">Leads por origem (Sim)</div>
+                            <button onClick={()=>setSimOrigens(p=>[...p,{nome:"Nova origem",qtd:0}])} className="text-xs px-3 h-10 border rounded-lg bg-white hover:bg-slate-50 whitespace-nowrap">+ Adicionar origem</button>
+                          </div>
+                          <div className="space-y-2">
+                            {simOrigens.map((o,i)=>(
+                              <div key={i} className="flex items-center gap-2 flex-wrap">
+                                <input value={o.nome} onChange={(e)=>setSimOrigens(p=>p.map((x,ix)=> ix===i? {...x, nome:e.target.value}:x))} className="border rounded-lg h-10 px-3 bg-white w-40" />
+                                <input type="number" min="0" value={o.qtd||""} onChange={(e)=>setSimOrigens(p=>p.map((x,ix)=> ix===i? {...x, qtd:Math.max(0,+e.target.value||0)}:x))} className="border rounded-lg h-10 px-3 bg-white w-28" />
+                                <button onClick={()=>setSimOrigens(p=>p.filter((_,ix)=>ix!==i))} className="text-xs px-3 h-10 border rounded-lg hover:bg-slate-100 shrink-0 whitespace-nowrap">Remover</button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="text-xs text-slate-600 mt-2">Total de Leads (Sim): <b>{numberBR(simTotalLeads)}</b></div>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-xl p-3 border">
+                          <div className="text-sm font-semibold mb-2">Parâmetros (Sim)</div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="flex flex-col"><label className="text-xs">Taxa Lead → Oportunidade (%)</label><input type="number" min="0" max="100" value={Number((simTxL2O*100).toFixed(1))||""} onChange={(e)=>setSimTxL2O(Math.max(0, Math.min(1,(+e.target.value||0)/100)))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                            <div className="flex flex-col"><label className="text-xs">Taxa Oportunidade → Venda (%)</label><input type="number" min="0" max="100" value={Number((simTxO2V*100).toFixed(1))||""} onChange={(e)=>setSimTxO2V(Math.max(0, Math.min(1,(+e.target.value||0)/100)))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                            <div className="flex flex-col"><label className="text-xs">Ticket médio (R$)</label><input type="number" min="0" value={simTicket||""} onChange={(e)=>setSimTicket(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                            <div className="flex flex-col"><label className="text-xs">Pipeline adicional (R$)</label><input type="number" min="0" value={simPipelineAdd||""} onChange={(e)=>setSimPipelineAdd(Math.max(0,+e.target.value||0))} className="border rounded-lg h-10 px-3 bg-white" /></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-2">
+                        <Kpi title="Receita Prevista (Sim)" value={currency(simReceitaPrevista)} sub={`Δ ${currency(simReceitaPrevista - receitaPrevista)} vs atual • Clientes: ${simClientes}`} />
+                        <Kpi title="GAP para Meta (Sim)" value={currency(Math.max(0, metaTotal - (receita + pipeReceita + simPipelineAdd + simReceitaNovos)))} emph />
+                        <Kpi title="Cobertura da Meta (Sim)" value={pct(simCob)} />
+                        <Kpi title="Leads necessários (Sim)" value={numberBR(simLeadsNec)} sub={`Faltam: ${numberBR(simLeadsFalt)}`} />
+                      </div>
+                    </div>
+                  )}
+                </section>
+
+                <section className="bg-white rounded-2xl shadow-sm border p-4">
+                  <div className="text-sm font-semibold mb-3">Resumo e Totalizadores</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                    <Kpi title="Leads totais requeridos" value={numberBR(leadsNec)} sub="Considera pipeline e realizado" />
+                    <Kpi title="Leads adicionais a gerar" value={numberBR(Math.max(0, (leadsNec||0) - (totalLeads||0)))} sub="Totais − informados" />
+                    <Kpi title="Opps necessárias" value={numberBR(oppsNec)} sub="Leads × taxa Lead→Opp" />
+                    <Kpi title="Vendas necessárias" value={numberBR(Math.ceil(dealsAlvo))} sub="Meta restante ÷ ticket" />
+                    <Kpi title="Conversão Lead→Opp (real)" value={pct(txRealL2O)} sub="Base: leads informados" />
+                  </div>
+                </section>
+              </main>
+            ) : (
+              <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+                <section className="bg-white rounded-2xl shadow-sm border p-4">
+                  <BarChart title="Progresso para meta (R$)" data={[
+                    { label: "Realizado", value: receita },
+                    { label: "Pipeline (esp.)", value: pipeReceita },
+                    { label: "Previsto (novos)", value: receitaNovos },
+                    { label: "GAP", value: Math.max(0, metaTotal - (receita + pipeReceita + receitaNovos)) }
+                  ]} />
+                </section>
+                <section className="bg-white rounded-2xl shadow-sm border p-4">
+                  {(() => {
+                    const { len, elapsed } = periodInfo(period);
+                    const meta = Array.from({ length: len }, (_, i) => (metaTotal||0) * (i/Math.max(1, len-1)));
+                    const proj = Array.from({ length: len }, (_, i) => (receita + receitaPrevista) * (i/Math.max(1, len-1)));
+                    return <LineChart title="Burn-down da Meta (acumulado)" meta={meta} proj={proj} len={len} elapsed={elapsed} />;
+                  })()}
+                </section>
+                <section className="bg-white rounded-2xl shadow-sm border p-4">
+                  <GroupedBar title="Funil reverso — Necessário vs Real" cats={["Leads","Oportunidades","Vendas"]} series={[
+                    { name: "Necessário", values: [leadsNec, oppsNec, Math.ceil(dealsAlvo||0)] },
+                    { name: "Real", values: [totalLeads, leadsConv, vendas] }
+                  ]} />
+                </section>
+              </main>
+            )}
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
